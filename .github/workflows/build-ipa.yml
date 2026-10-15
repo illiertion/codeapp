@@ -56,7 +56,7 @@ jobs:
 
           xcodebuild \
             -project Code.xcodeproj \
-            -scheme Code \
+            -scheme 'Code App' \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
