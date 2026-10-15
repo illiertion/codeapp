@@ -1,0 +1,95 @@
+
+name: Build Code App IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-codeapp-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build iPad IPA
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Select Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -d "/Applications/Xcode_26.2.app" ]; then
+            sudo xcode-select \
+              --switch /Applications/Xcode_26.2.app/Contents/Developer
+          fi
+
+          xcode-select -p
+          xcodebuild -version
+
+      - name: Download required frameworks
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./downloadFrameworks.sh
+          ./downloadFrameworks.sh
+
+      - name: Inspect Xcode project
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -list -project Code.xcodeproj
+
+      - name: Build iOS application
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          xcodebuild \
+            -project Code.xcodeproj \
+            -scheme Code \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/CodeAppBuild" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$RUNNER_TEMP/CodeAppBuild/Build/Products/Release-iphoneos/Code.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "::error::Code.app was not found. Check the Xcode scheme and build output."
+            find "$RUNNER_TEMP/CodeAppBuild/Build/Products" \
+              -maxdepth 4 -print || true
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/ipa/Payload/Code.app"
+
+          cd "$RUNNER_TEMP/ipa"
+          /usr/bin/zip -qry "$GITHUB_WORKSPACE/CodeApp-unsigned.ipa" Payload
+
+          test -s "$GITHUB_WORKSPACE/CodeApp-unsigned.ipa"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CodeApp-unsigned-IPA
+          path: CodeApp-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 7
